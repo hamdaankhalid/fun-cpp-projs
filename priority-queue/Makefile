@@ -2,6 +2,7 @@
 CC := g++
 CFLAGS := -Wall -std=c++17
 LDFLAGS := -L./build -lpriqueue
+INCLUDE_DIR := ./lib
 
 SRC_DIR := ./lib
 BUILD_DIR := ./build
@@ -9,7 +10,7 @@ BIN_DIR := ./bin
 EXAMPLES_DIR := ./examples
 
 # List your source files for the library
-LIB_SRCS := $(wildcard $(SRC_DIR)/*.cpp)
+LIB_SRCS := $(wildcard $(SRC_DIR)/pq.hh)
 LIB_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(LIB_SRCS))
 
 # Define the library target
@@ -26,16 +27,16 @@ all: $(LIB_TARGET) $(EXAMPLE_BINS)
 # Rule to build library objects
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -I$(SRC_DIR) -c $< -o $@
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
 
 # Rule to build the library
 $(LIB_TARGET): $(LIB_OBJS)
-	$(CC) -shared -o $@ $^
+	$(CC) $(CFLAGS) -shared -o $@ $^
 
 # Rule to build each example binary
 $(BIN_DIR)/%: $(EXAMPLES_DIR)/%.cpp $(LIB_TARGET)
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -I$(SRC_DIR) $< $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) $< $(LDFLAGS) -o $@
 
 clean:
 	rm -rf $(BUILD_DIR)/* $(BIN_DIR)/*

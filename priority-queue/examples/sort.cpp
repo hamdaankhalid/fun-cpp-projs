@@ -1,7 +1,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
-#include <pq.h>
+#include <pq.hh>
 
 bool tryParse(std::string& input, int& output) {
 	try {
@@ -20,10 +20,14 @@ int main() {
 
 	while (true)
 	{
+		std::cout << "Enter num: " << std::endl;
+
 		std::getline(std::cin, input);
+
 		if (input == "Q") {
 			break;
 		}
+
 		while (!tryParse(input, x)) {
 			std::cout << "Bad entry. Enter a NUMBER: ";
 			getline(std::cin, input);
@@ -31,16 +35,21 @@ int main() {
 				break;
 			}
 		}
+
 		pq.enqueue(x, x);	
 	}
 
-	std::cout << "Printing Sorted List from num inputs " << pq.count() << std::endl;
+	std::cout << "Printing Unsorted List from num inputs " << std::endl;
 	
+	pq.print();
+	
+	std::cout << "Printing Sorted List from num inputs " << pq.count() << std::endl;
+
 	while (!pq.isEmpty()) {
 		std::cout << pq.dequeue() << std::endl;
 	}
 	
-	std::cout << "-> Done ->" << std::endl;
+	std::cout << "-- Done --" << std::endl;
 
 	return 0;
 }
