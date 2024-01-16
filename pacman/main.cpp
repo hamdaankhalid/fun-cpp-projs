@@ -3,15 +3,12 @@
 #include <random>
 #include <iostream>
 #include <memory>
-#include <sys/fcntl.h>
-#include <sys/termios.h>
-#include <termios.h>
-#include <sys/poll.h>
+#include <sys/fcntl.h> // for making stdin non-blocking
+#include <sys/termios.h> // interacting with terminal
+#include <sys/poll.h> // IO multiplexing
 #include <utility>
 #include <vector>
 #include <unistd.h>	// For usleep function
-#include <fcntl.h>	// for making stdin non-blocking
-#include <poll.h>
 #include <unordered_map>
 
 const char PACMAN = 'O';
