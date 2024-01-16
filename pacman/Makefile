@@ -25,5 +25,8 @@ $(BUILDDIR)/%.o: $(SRCDIR)/%.cpp
 
 .PHONY: clean
 
+format:
+	clang-format -i ./main.cpp
+
 clean:
 	rm -rf $(BUILDDIR)/* $(BINDIR)/*
