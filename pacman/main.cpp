@@ -68,6 +68,7 @@ struct Input {
 struct Position {
   int x;
   int y;
+  Direction dir;
 };
 
 // forward decl
@@ -110,14 +111,9 @@ Gameboard::Gameboard(int rows, int cols)
   }
 }
 
-void Gameboard::draw(std::vector<std::unique_ptr<Input>> &updates) {
-  for (int i = 0; i < this->rows; i++) {
-    for (int j = 0; j < this->cols; j++) {
-      std::cout << this->board[i][j] << " ";
-    }
-    std::cout << "\n";
-  }
+const char ghostDir[4] = {'v', '^', '<', '>'};
 
+void Gameboard::draw(std::vector<std::unique_ptr<Input>> &updates) {
   // go over the updates, make the updates and mark the inverse as empty
   for (auto i = 0u; i < updates.size(); i++) {
     const Input &update = *updates[i];
@@ -132,10 +128,38 @@ void Gameboard::draw(std::vector<std::unique_ptr<Input>> &updates) {
     if (i == 0) {
       repr = PACMAN;
     } else {
-      repr = GHOST;
+      repr = ghostDir[pos.dir]; // based on the dir we should get the ghost char
     }
     this->board[pos.y][pos.x] = repr;
   }
+
+  // print board to screen in one go
+  int strBoardSize = this->rows * this->cols * 2;  // 2 represents the spaces and EOL
+  strBoardSize--;
+  std::string strBoard(strBoardSize, '\n');
+  for (int i = 0; i < strBoardSize; i++)
+  {
+	  if (i != 0 && i % (this->rows*2) == 0)
+	  {
+		  continue;
+	  }
+	
+	  if (i % 2 != 0) 
+	  {
+		  strBoard[i] = ' ';
+	  }
+	  else 
+	  {
+		  int j = i/2;
+
+		  int normalizedRow = j / this->rows;
+		  int normalizedCol = j % this->cols;
+
+		  strBoard[i] = this->board[normalizedRow][normalizedCol];
+	  }
+  };
+  
+  std::cout << strBoard << std::endl;
 }
 
 int Gameboard::insertMovable() {
@@ -186,9 +210,12 @@ std::pair<int, int> Gameboard::updateMovable(const Input &input) {
   std::pair<int, int> initPos = std::make_pair(movablePos.y, movablePos.x);
 
   std::pair<int, int> offset = this->validateMove(initPos, input.dir).first;
+
+  movablePos.dir = input.dir;
+
   movablePos.y += offset.first;
   movablePos.x += offset.second;
-
+  
   if (movablePos.y == initPos.first && movablePos.x == initPos.second) {
     return std::make_pair(-1, -1);
   }
@@ -331,7 +358,7 @@ int main() {
   std::vector<std::unique_ptr<Input>> gameplayInstructionBuffer;
 
   // setup gameboard
-  Gameboard gb(20, 20);
+  Gameboard gb(10, 10);
   // add base player
   int userId = gb.insertMovable();
   int ghost1Id = gb.insertMovable();
@@ -342,15 +369,20 @@ int main() {
             << std::endl;
 
   // add two ghosts
-  Ghost ghosts[1] = {Ghost(ghost1Id)}; //, Ghost(ghost2Id)};
+  Ghost ghosts[2] = {Ghost(ghost1Id) , Ghost(ghost2Id)};
 
-  runCountdown(3);
+  // runCountdown(3);
 
+  bool moveGhost = false;
   while (true) {
-
-    for (int i = 0; i < 1; i++) {
-      gameplayInstructionBuffer.push_back(ghosts[i].getNextMove(gb));
-    }
+	
+	// slow the ghosts down?
+	if (moveGhost) {
+		for (int i = 0; i < 2; i++) {
+		  gameplayInstructionBuffer.push_back(ghosts[i].getNextMove(gb));
+		}
+	}
+	moveGhost = !moveGhost;
 
     if (handleFakeInterrupt(fds, gameplayInstructionBuffer) < 0) {
       // user wanted to exit the game
