@@ -134,29 +134,23 @@ void Gameboard::draw(std::vector<std::unique_ptr<Input>> &updates) {
   }
 
   // print board to screen in one go
+  // TODO: Matrix as string logic in a single damn loop
   int strBoardSize = this->rows * this->cols * 2;  // 2 represents the spaces and EOL
   strBoardSize--;
   std::string strBoard(strBoardSize, '\n');
   for (int i = 0; i < strBoardSize; i++)
   {
-	  if (i != 0 && i % (this->rows*2) == 0)
-	  {
+	  if ( i % 2 != 0) {
+		  strBoard[i] = ' ';
 		  continue;
 	  }
-	
-	  if (i % 2 != 0) 
-	  {
-		  strBoard[i] = ' ';
-	  }
-	  else 
-	  {
-		  int j = i/2;
+	  int j = i/2;
 
-		  int normalizedRow = j / this->rows;
-		  int normalizedCol = j % this->cols;
+	  int normalizedRow = j / this->rows;
+	  int normalizedCol = j % this->cols;
 
-		  strBoard[i] = this->board[normalizedRow][normalizedCol];
-	  }
+	  strBoard[i] = this->board[normalizedRow][normalizedCol];
+  
   };
   
   std::cout << strBoard << std::endl;
