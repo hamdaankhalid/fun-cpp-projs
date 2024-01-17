@@ -128,8 +128,6 @@ void Gameboard::draw(std::vector<std::unique_ptr<Input>> &updates) {
 
   for (int i = 0; i < pidCounter; i++) {
     const Position &pos = *this->movables[i];
-    std::cout << "moving PID: " << i << " TO " << pos.y << " , " << pos.x
-              << std::endl;
     char repr;
     if (i == 0) {
       repr = PACMAN;
@@ -333,22 +331,24 @@ int main() {
   std::vector<std::unique_ptr<Input>> gameplayInstructionBuffer;
 
   // setup gameboard
-  Gameboard gb(40, 40);
+  Gameboard gb(20, 20);
   // add base player
   int userId = gb.insertMovable();
   int ghost1Id = gb.insertMovable();
   int ghost2Id = gb.insertMovable();
+
   std::cout << "User created with id: " << userId << std::endl;
   std::cout << "2 ghosts added with ids " << ghost1Id << ", and " << ghost2Id
             << std::endl;
 
   // add two ghosts
-  Ghost ghosts[2] = {Ghost(ghost1Id), Ghost(ghost2Id)};
+  Ghost ghosts[1] = {Ghost(ghost1Id)}; //, Ghost(ghost2Id)};
 
   runCountdown(3);
 
   while (true) {
-    for (int i = 0; i < 3; i++) {
+
+    for (int i = 0; i < 1; i++) {
       gameplayInstructionBuffer.push_back(ghosts[i].getNextMove(gb));
     }
 
