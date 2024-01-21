@@ -13,6 +13,7 @@
 
 const char PACMAN    = 'O';
 const char COLUMN    = 'I';
+const char ADD_GHOST = ' ';
 const char QUIT      = 'q';
 const char UP_CMD    = 'w';
 const char DOWN_CMD  = 's';
@@ -127,16 +128,18 @@ std::pair< int, int > Gameboard::getCurrPos (int pid) {
 
 Gameboard::Gameboard (int rows, int cols)
 : rows (rows), cols (cols), pidCounter (0),
-  rowRandGen (std::make_unique< RandGen > (0, rows)),
-  colRandGen (std::make_unique< RandGen > (0, cols)) {
+  rowRandGen (std::make_unique< RandGen > (0, rows - 1)),
+  colRandGen (std::make_unique< RandGen > (0, cols - 1)) {
+	// construct graph super simple
     for (int i = 0; i < rows; i++) {
-        std::vector< char > row (cols, '.');
+        std::vector< char > row (cols, ' ');
         this->board.push_back (row);
     }
 }
 
+// This would be nice if we made it into mazes
 void Gameboard::drawWalls(int percentage) {
-	RandGen rg(0, 100);
+	RandGen rg(1, 100);
 	for (int i = 0; i < this->rows; i++) {
 		for (int j = 0; j < this->cols; j++) {
 			if (i != 0 && j != 0 && rg.getRandomInt() < percentage) {
@@ -186,29 +189,37 @@ void Gameboard::draw (std::vector< std::unique_ptr< Input > >& updates) {
      * ._O_.\n
      * ^_._.\n
      * ._._<\n
-     *
-     * ._O_.(\n)^_._.(\n)
+     * ._._.\n
+	 *
+     * ._O_.(\n)^_._.(\n)._._.(\n)
+	 * 8 * 10 * 2 = 160
+	 * 8 rows 10 columns
+	 * 0..20..40..60..80..100..120..140
      * */
+
+	// TODO: THIS IS STILL FUCKED UP
     int strBoardSize = this->rows * this->cols * 2; // 2 represents the spaces and EOL
     std::string strBoard (strBoardSize, ' ');
-    int prevRow = 0;
-    for (int i = 0; i < strBoardSize; i++) {
 
-        int nextStepRow = ((i + 1) / 2) / this->rows;
+    for (int i = 0; i < strBoardSize; i++) {
+		std::cout << i << std::endl;
+        int row = (i / 2) / this->rows;
+        int col = (i / 2) % this->cols;
+
         // newline
-        if (prevRow != nextStepRow) {
-            prevRow     = nextStepRow;
+        if (i % 2 == 0 && col == this->cols-1) {
+			std::cout << "newline" << std::endl;
             strBoard[i] = '\n';
             continue;
         }
 
         // space
         if (i % 2 != 0) {
+			std::cout << "space" << std::endl;
             continue;
         }
 
-        int col = (i / 2) % this->cols;
-        int row = (i / 2) / this->rows;
+		std::cout << row << ", " << col << std::endl;
 
         strBoard[i] = this->board[row][col];
     }
@@ -326,40 +337,51 @@ class Ghost {
     int id;
     Direction lastMove;
     std::unique_ptr< RandGen > rg;
+    std::unique_ptr< RandGen > randomDirRg;
 };
 
 const Direction dirFrom[4] = { UP, DOWN, LEFT, RIGHT };
 
-Ghost::Ghost (int id) : id (id), rg (std::make_unique< RandGen > (0, 3)) {
+Ghost::Ghost (int id) : id (id) {
+	this->rg = std::make_unique< RandGen > (0, 3);
+	this->randomDirRg =std::make_unique< RandGen > (1, 100); 
     this->lastMove = dirFrom[this->rg->getRandomInt ()];
 }
 
+const int RANDOM_MOVE_PERCENTAGE = 30;
 std::unique_ptr< Input > Ghost::getNextMove (Gameboard& gb) {
     while (true) {
-        Direction moveToMake;
-        switch (this->lastMove) {
-        case NOOP: moveToMake = DOWN; break;
-        default: moveToMake = lastMove;
-        }
+        Direction moveToMake = this->lastMove;
+		// Either this is the first move or this is the RANDOM MOVE PERFECNTAGE of the time situation where ghost turns randomly
+        if (this->lastMove == NOOP || this->randomDirRg->getRandomInt() > (100 - RANDOM_MOVE_PERCENTAGE)) {
+			moveToMake = dirFrom[this->rg->getRandomInt()];
+        }		
+
         // would making the move be a valid move on the board? 
-		// if not give me a random diff dir
-        Input ghostInput;
-        ghostInput.moverId = this->id;
-        ghostInput.dir     = moveToMake;
+		// if it would not give me a random diff dir
+
+        Input ghostInput {this->id, moveToMake};
 
         std::pair< int, int > currPos = gb.getCurrPos (this->id);
-        Direction dir = gb.validateMoveBoundary (currPos, moveToMake).second;
-        if (dir != NOOP) {
-            this->lastMove = moveToMake;
-            return std::make_unique< Input > (std::move (ghostInput));
-        }
-		// TODO: Move collision based checking
 
+		std::pair< std::pair<int, int>, Direction> res = gb.validateMoveBoundary (currPos, moveToMake);
+
+		if (res.second != NOOP) {
+			// collision based checking for columns if the move 
+			// doesn't lead us into the column we are okay to proceed
+			CollisionValidation collValidation = gb.validateCollision (currPos, res.first);
+			if (collValidation != COLUMNCOL) {
+				this->lastMove = moveToMake;
+				return std::make_unique< Input > (std::move (ghostInput));
+			}
+        }
+
+	
         this->lastMove = dirFrom[this->rg->getRandomInt ()];
     }
 }
 
-// get updates from user using eventloop style IO multiplexing
+// get updates from user using eventloop style IO multiplexing, return the number of ghosts wanted to be updated
 int handleFakeInterrupt (struct pollfd fds[], std::vector< std::unique_ptr< Input > >& buf) {
     // "1" specifies size of fds
     int result = poll (fds, 1, NON_BLOCKING_EVENT_LOOP_INPUT_POLL);
@@ -371,6 +393,7 @@ int handleFakeInterrupt (struct pollfd fds[], std::vector< std::unique_ptr< Inpu
             ssize_t bytesRead = read (STDIN_FILENO, buffer, sizeof (buffer));
 
             if (bytesRead > 0) {
+				int ghostsAdded = 0;
                 for (int i = 0; i < bytesRead; i++) {
                     std::unique_ptr< Input > userInput = nullptr;
                     switch (buffer[i]) {
@@ -386,6 +409,9 @@ int handleFakeInterrupt (struct pollfd fds[], std::vector< std::unique_ptr< Inpu
                     case RIGHT_CMD:
                         userInput = std::make_unique< Input > (Input{ 0, RIGHT });
                         break;
+					case ADD_GHOST:
+						ghostsAdded++;
+						break;
                     case QUIT: return -1;
                     default: break;
                     }
@@ -393,7 +419,7 @@ int handleFakeInterrupt (struct pollfd fds[], std::vector< std::unique_ptr< Inpu
                         buf.push_back (std::move (userInput));
                     }
                 }
-                return 0;
+                return ghostsAdded;
             }
         }
     }
@@ -451,36 +477,41 @@ int main () {
     std::vector< std::unique_ptr< Input > > gameplayInstructionBuffer;
 
     // setup gameboard
-    Gameboard gb (30, 30);
+    Gameboard gb (2, 3);
+
     // add base player
     gb.insertMovable ();
 	gb.drawWalls(10);
 
     // add two ghosts
     int ghost1Id = gb.insertMovable ();
-    int ghost2Id = gb.insertMovable ();
-
+	
     // Make this a vector so we can add ghosts at runtime?
-    Ghost ghosts[2] = { Ghost (ghost1Id), Ghost (ghost2Id) };
+	std::vector<Ghost> ghosts;
+	ghosts.push_back(Ghost (ghost1Id));
 
-    runCountdown (2);
-
+    // TODO: runCountdown (2);
     bool moveGhost = false;
     // main Gameloop
     while (true) {
-
         // shitty hack to slow the ghosts down?
         if (moveGhost) {
-            for (int i = 0; i < 2; i++) {
+            for (auto i = 0u; i < ghosts.size(); i++) {
                 gameplayInstructionBuffer.push_back (ghosts[i].getNextMove (gb));
             }
         }
         moveGhost = !moveGhost;
 
-        if (handleFakeInterrupt (fds, gameplayInstructionBuffer) < 0) {
+		int ghostsAdded = handleFakeInterrupt (fds, gameplayInstructionBuffer);
+		// less than 0 means quit was pressed
+        if (ghostsAdded < 0) {
             // user wanted to exit the game
             break;
         }
+
+		for (int i = 0; i < ghostsAdded; i++) {
+			ghosts.push_back(Ghost (gb.insertMovable ()));
+		}
 
         gb.draw (gameplayInstructionBuffer);
 
