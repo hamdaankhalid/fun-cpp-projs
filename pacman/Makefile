@@ -12,12 +12,20 @@ OBJ := $(SRC:$(SRCDIR)/%.cpp=$(BUILDDIR)/%.o)
 
 # The final executable name
 TARGET := $(BINDIR)/pacman
+DEBUG_TARGET := $(BINDIR)/pacman_debug
 
 all: $(TARGET)
+
+debug: CXXFLAGS += -g
+debug: $(DEBUG_TARGET)
 
 $(TARGET): $(OBJ)
 	@mkdir -p $(BINDIR)
 	$(CXX) $(CXXFLAGS) $^ -o $@
+
+$(DEBUG_TARGET): $(OBJ)
+	@mkdir -p $(BINDIR)
+	$(CXX) $(CXXFLAGS) -g $^ -o $@
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.cpp
 	@mkdir -p $(BUILDDIR)
