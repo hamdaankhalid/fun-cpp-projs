@@ -13,7 +13,7 @@
 
 const char PACMAN    = 'O';
 const char COLUMN    = 'I';
-const char ADD_GHOST = ' ';
+const char ADD_GHOST = ' '; // spacebar
 const char QUIT      = 'q';
 const char UP_CMD    = 'w';
 const char DOWN_CMD  = 's';
@@ -30,6 +30,12 @@ class RandGen {
     public:
     RandGen (int lower, int upper);
     int getRandomInt ();
+
+	// delete copy and move
+	RandGen(const RandGen&) = delete;
+	RandGen& operator=(const RandGen&) = delete;
+	RandGen(RandGen&&) = delete;
+	RandGen& operator=(RandGen&&) = delete;
 
     private:
     std::unique_ptr< std::random_device > dev;
@@ -64,11 +70,11 @@ void runCountdown (int i) {
 }
 
 enum Direction {
-    UP,
-    DOWN,
-    RIGHT,
-    LEFT,
-    NOOP,
+    UP = 0,
+    DOWN = 1,
+    RIGHT = 2,
+    LEFT = 3,
+    NOOP = 4,
 };
 
 struct Input {
@@ -104,7 +110,7 @@ class Gameboard {
     int rows;
     int cols;
     int pidCounter;
-    std::unordered_map< int, std::unique_ptr< Position > > movables;
+    std::vector< std::unique_ptr< Position > > movables;
     std::unique_ptr< RandGen > rowRandGen;
     std::unique_ptr< RandGen > colRandGen;
 
@@ -139,17 +145,18 @@ Gameboard::Gameboard (int rows, int cols)
 
 // This would be nice if we made it into mazes
 void Gameboard::drawWalls(int percentage) {
-	RandGen rg(1, 100);
+	RandGen decisionRg(1, 100);
+
 	for (int i = 0; i < this->rows; i++) {
 		for (int j = 0; j < this->cols; j++) {
-			if (i != 0 && j != 0 && rg.getRandomInt() < percentage) {
+			if (i != 0 && j != 0 && decisionRg.getRandomInt() < percentage) {
 				this->board[i][j] = COLUMN;			
 			}
 		}
 	}
 }
 
-const char ghostDir[4] = { 'v', '^', '<', '>' };
+const char ghostDir[5] = { 'v', '^', '<', '>', '<' };
 
 void Gameboard::draw (std::vector< std::unique_ptr< Input > >& updates) {
     // go over the updates, make the updates and mark the inverse as empty
@@ -157,72 +164,36 @@ void Gameboard::draw (std::vector< std::unique_ptr< Input > >& updates) {
         const Input& update           = *updates[i];
         std::pair< int, int > prevPos = this->updateMovable (update);
         // we know the pos on board will never go to -1 unless the move was invalid
-        if (prevPos.first == -1) {
+        if (prevPos.first == -1 || prevPos.second == -1) {
             continue;
         }
         // when someone has passed over the cell is now empty
         this->board[prevPos.first][prevPos.second] = ' ';
     }
-
+	
     for (int i = 0; i < pidCounter; i++) {
         const Position& pos = *this->movables[i];
+
         char repr;
         if (i == 0) {
             repr = PACMAN;
         } else {
-            repr = ghostDir[pos.dir]; // based on the dir we should get the ghost char
-        }
+			// based on the dir we should get the ghost char
+            repr = ghostDir[pos.dir]; 
+		}
+		
         this->board[pos.y][pos.x] = repr;
     }
 
-    /*
-     * Reduce System calls to print the board by calling
-     * cout on string repr only once
-     * [.,O,.]
-     * [^,.,.]
-     * [.,.,<]
-     *
-     * Func (vec<vec<char>>) -> str
-     *
-     * str format
-     *
-     * ._O_.\n
-     * ^_._.\n
-     * ._._<\n
-     * ._._.\n
-	 *
-     * ._O_.(\n)^_._.(\n)._._.(\n)
-	 * 8 * 10 * 2 = 160
-	 * 8 rows 10 columns
-	 * 0..20..40..60..80..100..120..140
-     * */
-
-	// TODO: THIS IS STILL FUCKED UP
-    int strBoardSize = this->rows * this->cols * 2; // 2 represents the spaces and EOL
-    std::string strBoard (strBoardSize, ' ');
-
-    for (int i = 0; i < strBoardSize; i++) {
-		std::cout << i << std::endl;
-        int row = (i / 2) / this->rows;
-        int col = (i / 2) % this->cols;
-
-        // newline
-        if (i % 2 == 0 && col == this->cols-1) {
-			std::cout << "newline" << std::endl;
-            strBoard[i] = '\n';
-            continue;
-        }
-
-        // space
-        if (i % 2 != 0) {
-			std::cout << "space" << std::endl;
-            continue;
-        }
-
-		std::cout << row << ", " << col << std::endl;
-
-        strBoard[i] = this->board[row][col];
-    }
+    int strBoardSize = this->rows * this->cols;
+    std::string strBoard;
+	strBoard.reserve(strBoardSize);
+	for (int i = 0; i < this->rows; i++) {
+		for (int j = 0; j < this->cols; j++) {
+			strBoard.push_back(this->board[i][j]);
+		}
+		strBoard.push_back('\n');
+	}
 
     std::cout << strBoard << std::endl;
 }
@@ -235,9 +206,8 @@ int Gameboard::insertMovable () {
         row = this->rowRandGen->getRandomInt ();
         col = this->colRandGen->getRandomInt ();
     }
-
-    this->movables[this->pidCounter] =
-    std::make_unique< Position > (Position{ row, col, NOOP });
+	
+    this->movables.push_back(std::make_unique< Position > (Position{ col, row, NOOP }));
     this->pidCounter++;
 
     // the movable Id for the newly inserted movable
@@ -285,18 +255,19 @@ std::pair< int, int >& offset) {
     std::pair< int, int > newPos =
     std::make_pair (currPos.first + offset.first, currPos.second + offset.second);
     char tile = this->board[newPos.first][newPos.second];
-    if (tile == ' ' || tile == '.') {
+    if (tile == ' ' ) {
         return NOCOLLISION;
     } else if (tile == PACMAN) {
         return PACMANCOL;
     } else if (tile == COLUMN) {
         return COLUMNCOL;
     }
+
     return MOVABLECOL;
 }
 
 std::pair< int, int > Gameboard::updateMovable (const Input& input) {
-    // Take reference of movable pos, without taking ownership of it
+    // Take mutable reference of movable pos, without taking ownership of it
     Position& movablePos          = *this->movables[input.moverId];
     std::pair< int, int > initPos = std::make_pair (movablePos.y, movablePos.x);
 
@@ -309,6 +280,7 @@ std::pair< int, int > Gameboard::updateMovable (const Input& input) {
 
     std::pair< int, int > offset = validationRes.first;
     CollisionValidation collValidation = this->validateCollision (initPos, offset);
+
     if (collValidation == COLUMNCOL) {
         // cannot proceed
         return std::make_pair< int, int > (-1, -1);
@@ -355,7 +327,7 @@ std::unique_ptr< Input > Ghost::getNextMove (Gameboard& gb) {
 		// Either this is the first move or this is the RANDOM MOVE PERFECNTAGE of the time situation where ghost turns randomly
         if (this->lastMove == NOOP || this->randomDirRg->getRandomInt() > (100 - RANDOM_MOVE_PERCENTAGE)) {
 			moveToMake = dirFrom[this->rg->getRandomInt()];
-        }		
+        }
 
         // would making the move be a valid move on the board? 
 		// if it would not give me a random diff dir
@@ -372,11 +344,13 @@ std::unique_ptr< Input > Ghost::getNextMove (Gameboard& gb) {
 			CollisionValidation collValidation = gb.validateCollision (currPos, res.first);
 			if (collValidation != COLUMNCOL) {
 				this->lastMove = moveToMake;
+
+				assert(moveToMake != NOOP);
+
 				return std::make_unique< Input > (std::move (ghostInput));
 			}
         }
 
-	
         this->lastMove = dirFrom[this->rg->getRandomInt ()];
     }
 }
@@ -477,29 +451,34 @@ int main () {
     std::vector< std::unique_ptr< Input > > gameplayInstructionBuffer;
 
     // setup gameboard
-    Gameboard gb (2, 3);
+	int rows = 20;
+	int cols = 40;
+
+	std::cout << "Constructing Game map with rows, cols " << rows << ", " << cols << std::endl;
+
+    Gameboard gb (rows, cols);
 
     // add base player
     gb.insertMovable ();
-	gb.drawWalls(10);
+	gb.drawWalls(5);
 
-    // add two ghosts
-    int ghost1Id = gb.insertMovable ();
-	
     // Make this a vector so we can add ghosts at runtime?
 	std::vector<Ghost> ghosts;
-	ghosts.push_back(Ghost (ghost1Id));
 
-    // TODO: runCountdown (2);
-    bool moveGhost = false;
+	ghosts.push_back(Ghost (gb.insertMovable ()));
+
+    runCountdown (2);
+    bool moveGhost = true;
+
     // main Gameloop
     while (true) {
         // shitty hack to slow the ghosts down?
         if (moveGhost) {
-            for (auto i = 0u; i < ghosts.size(); i++) {
+            for (int i = 0; i < (int)ghosts.size(); i++) {
                 gameplayInstructionBuffer.push_back (ghosts[i].getNextMove (gb));
             }
         }
+
         moveGhost = !moveGhost;
 
 		int ghostsAdded = handleFakeInterrupt (fds, gameplayInstructionBuffer);
@@ -508,14 +487,14 @@ int main () {
             // user wanted to exit the game
             break;
         }
+		
+        gb.draw (gameplayInstructionBuffer);
+
+        gameplayInstructionBuffer.clear ();
 
 		for (int i = 0; i < ghostsAdded; i++) {
 			ghosts.push_back(Ghost (gb.insertMovable ()));
 		}
-
-        gb.draw (gameplayInstructionBuffer);
-
-        gameplayInstructionBuffer.clear ();
 
         usleep (FRAME);
 
