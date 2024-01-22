@@ -1,6 +1,8 @@
 #include <cstdlib>
+#include <ctime>
 #include <iostream>
 #include <memory>
+#include <queue>
 #include <random>
 #include <sys/fcntl.h>   // for making stdin non-blocking
 #include <sys/poll.h>    // IO multiplexing
@@ -8,6 +10,7 @@
 #include <tuple>
 #include <unistd.h> // For usleep function
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -31,11 +34,11 @@ class RandGen {
     RandGen (int lower, int upper);
     int getRandomInt ();
 
-	// delete copy and move
-	RandGen(const RandGen&) = delete;
-	RandGen& operator=(const RandGen&) = delete;
-	RandGen(RandGen&&) = delete;
-	RandGen& operator=(RandGen&&) = delete;
+    // delete copy and move
+    RandGen (const RandGen&)            = delete;
+    RandGen& operator= (const RandGen&) = delete;
+    RandGen (RandGen&&)                 = delete;
+    RandGen& operator= (RandGen&&)      = delete;
 
     private:
     std::unique_ptr< std::random_device > dev;
@@ -70,16 +73,17 @@ void runCountdown (int i) {
 }
 
 enum Direction {
-    UP = 0,
-    DOWN = 1,
+    UP    = 0,
+    DOWN  = 1,
     RIGHT = 2,
-    LEFT = 3,
-    NOOP = 4,
+    LEFT  = 3,
+    NOOP  = 4,
 };
 
 struct Input {
     int moverId;
     Direction dir;
+    Input (int id, Direction iDir) : moverId (id), dir (iDir){};
 };
 
 struct Position {
@@ -95,13 +99,41 @@ enum CollisionValidation {
     MOVABLECOL,
 };
 
+enum GameNotification {
+    CAUGHT,
+    GHOSTADDED,
+};
+
+class ScoreKeeper {
+    public:
+    ScoreKeeper () : numGhosts (0), timesCaught (0) {
+    }
+
+    void notify (GameNotification notif) {
+        switch (notif) {
+        case CAUGHT: timesCaught++; break;
+        case GHOSTADDED: numGhosts++; break;
+        default: break;
+        }
+    }
+
+    void displayScore () {
+        std::cout << "Ghosts On Screen: " << numGhosts << "\n"
+                  << "Times Caught: " << timesCaught << "\n";
+    }
+
+    private:
+    int numGhosts;
+    int timesCaught;
+};
+
 // forward decl
 class Ghost;
 
 class Gameboard {
     public:
-    Gameboard (int rows, int cols);
-	void drawWalls(int percentage);
+    Gameboard (int rows, int cols, ScoreKeeper& scoreKeeper);
+    void drawWalls (int percentage);
     void draw (std::vector< std::unique_ptr< Input > >& updates);
     int insertMovable ();
 
@@ -113,6 +145,8 @@ class Gameboard {
     std::vector< std::unique_ptr< Position > > movables;
     std::unique_ptr< RandGen > rowRandGen;
     std::unique_ptr< RandGen > colRandGen;
+    // just hold a reference because this was allocated on stack and DI'd
+    ScoreKeeper& keeper;
 
     std::pair< int, int > getCurrPos (int pid);
 
@@ -132,11 +166,11 @@ std::pair< int, int > Gameboard::getCurrPos (int pid) {
     return std::make_pair (pos.y, pos.x);
 }
 
-Gameboard::Gameboard (int rows, int cols)
+Gameboard::Gameboard (int rows, int cols, ScoreKeeper& scoreKeeper)
 : rows (rows), cols (cols), pidCounter (0),
   rowRandGen (std::make_unique< RandGen > (0, rows - 1)),
-  colRandGen (std::make_unique< RandGen > (0, cols - 1)) {
-	// construct graph super simple
+  colRandGen (std::make_unique< RandGen > (0, cols - 1)), keeper (scoreKeeper) {
+    // construct graph super simple
     for (int i = 0; i < rows; i++) {
         std::vector< char > row (cols, ' ');
         this->board.push_back (row);
@@ -144,16 +178,16 @@ Gameboard::Gameboard (int rows, int cols)
 }
 
 // This would be nice if we made it into mazes
-void Gameboard::drawWalls(int percentage) {
-	RandGen decisionRg(1, 100);
+void Gameboard::drawWalls (int percentage) {
+    RandGen decisionRg (1, 100);
 
-	for (int i = 0; i < this->rows; i++) {
-		for (int j = 0; j < this->cols; j++) {
-			if (i != 0 && j != 0 && decisionRg.getRandomInt() < percentage) {
-				this->board[i][j] = COLUMN;			
-			}
-		}
-	}
+    for (int i = 0; i < this->rows; i++) {
+        for (int j = 0; j < this->cols; j++) {
+            if (i != 0 && j != 0 && decisionRg.getRandomInt () < percentage) {
+                this->board[i][j] = COLUMN;
+            }
+        }
+    }
 }
 
 const char ghostDir[5] = { 'v', '^', '<', '>', '<' };
@@ -170,7 +204,7 @@ void Gameboard::draw (std::vector< std::unique_ptr< Input > >& updates) {
         // when someone has passed over the cell is now empty
         this->board[prevPos.first][prevPos.second] = ' ';
     }
-	
+
     for (int i = 0; i < pidCounter; i++) {
         const Position& pos = *this->movables[i];
 
@@ -178,24 +212,24 @@ void Gameboard::draw (std::vector< std::unique_ptr< Input > >& updates) {
         if (i == 0) {
             repr = PACMAN;
         } else {
-			// based on the dir we should get the ghost char
-            repr = ghostDir[pos.dir]; 
-		}
-		
+            // based on the dir we should get the ghost char
+            repr = ghostDir[pos.dir];
+        }
+
         this->board[pos.y][pos.x] = repr;
     }
 
     int strBoardSize = this->rows * this->cols;
     std::string strBoard;
-	strBoard.reserve(strBoardSize);
-	for (int i = 0; i < this->rows; i++) {
-		for (int j = 0; j < this->cols; j++) {
-			strBoard.push_back(this->board[i][j]);
-		}
-		strBoard.push_back('\n');
-	}
+    strBoard.reserve (strBoardSize);
+    for (int i = 0; i < this->rows; i++) {
+        for (int j = 0; j < this->cols; j++) {
+            strBoard.push_back (this->board[i][j]);
+        }
+        strBoard.push_back ('\n');
+    }
 
-    std::cout << strBoard << std::endl;
+    std::cout << strBoard;
 }
 
 int Gameboard::insertMovable () {
@@ -206,8 +240,8 @@ int Gameboard::insertMovable () {
         row = this->rowRandGen->getRandomInt ();
         col = this->colRandGen->getRandomInt ();
     }
-	
-    this->movables.push_back(std::make_unique< Position > (Position{ col, row, NOOP }));
+
+    this->movables.push_back (std::make_unique< Position > (Position{ col, row, NOOP }));
     this->pidCounter++;
 
     // the movable Id for the newly inserted movable
@@ -255,7 +289,7 @@ std::pair< int, int >& offset) {
     std::pair< int, int > newPos =
     std::make_pair (currPos.first + offset.first, currPos.second + offset.second);
     char tile = this->board[newPos.first][newPos.second];
-    if (tile == ' ' ) {
+    if (tile == ' ') {
         return NOCOLLISION;
     } else if (tile == PACMAN) {
         return PACMANCOL;
@@ -286,10 +320,10 @@ std::pair< int, int > Gameboard::updateMovable (const Input& input) {
         return std::make_pair< int, int > (-1, -1);
     } else if (collValidation == PACMANCOL && input.moverId != 0) {
         // movable ghost collided into pacman!
-        std::cout << "Ghost caught pacman!\n";
+        this->keeper.notify (CAUGHT);
     } else if (collValidation == MOVABLECOL && input.moverId == 0) {
         // pacman ran into ghost!
-        std::cout << "Pacman caught ghost!\n";
+        this->keeper.notify (CAUGHT);
     }
 
     movablePos.dir = input.dir;
@@ -315,40 +349,117 @@ class Ghost {
 const Direction dirFrom[4] = { UP, DOWN, LEFT, RIGHT };
 
 Ghost::Ghost (int id) : id (id) {
-	this->rg = std::make_unique< RandGen > (0, 3);
-	this->randomDirRg =std::make_unique< RandGen > (1, 100); 
-    this->lastMove = dirFrom[this->rg->getRandomInt ()];
+    this->rg          = std::make_unique< RandGen > (0, 3);
+    this->randomDirRg = std::make_unique< RandGen > (1, 100);
+    this->lastMove    = dirFrom[this->rg->getRandomInt ()];
 }
 
-const int RANDOM_MOVE_PERCENTAGE = 30;
+struct BfsNode {
+    std::pair< int, int > currPos;
+    int level;
+    Direction initDirection;
+};
+
+const int RANDOM_MOVE_PERCENTAGE = 15;
+
+// I have plagiarized this hasher from chatgpt
+// Hash function for std::pair<int, int>
+struct pair_hash {
+    template < class T1, class T2 >
+    std::size_t operator() (const std::pair< T1, T2 >& p) const {
+        auto hash1 = std::hash< T1 >{}(p.first);
+        auto hash2 = std::hash< T2 >{}(p.second);
+
+        // Simple hash combining algorithm
+        // You can replace this with a more sophisticated hash function if needed
+        return hash1 ^ hash2;
+    }
+};
+
+// From 5 moves away the ghost will start chasing you!
+const int BFS_DEPTH_GHOST = 5;
+
 std::unique_ptr< Input > Ghost::getNextMove (Gameboard& gb) {
+    // check if Pacman is nearby and if we can move towards the fucker
+    std::pair< int, int > currPos = gb.getCurrPos (this->id);
+    // see if pacman is present anywhere close to us using size limited BFS
+    // hydrate the queue
+    std::unordered_set< std::pair< int, int >, pair_hash > visited;
+    std::queue< BfsNode > q;
+    q.push (BfsNode{ currPos, 0, NOOP });
+    // mark starting point as visited
+    visited.insert (currPos);
+
+    while (!q.empty ()) {
+        BfsNode curr = q.front ();
+        q.pop ();
+
+        // apply the offsets, see which one's are valid, see which one's result in us finding pacman
+        // iterate over enums UP, DOWN, LEFT, RIGHT using their int repr
+        for (int i = 0; i < 4; i++) {
+            std::pair< std::pair< int, int >, Direction > boundaryValidation =
+            gb.validateMoveBoundary (curr.currPos, (Direction)i);
+            if (boundaryValidation.second == NOOP) {
+                continue;
+            }
+
+            CollisionValidation collValidation =
+            gb.validateCollision (curr.currPos, boundaryValidation.first);
+            // either we cant move or cannot explore further in depth
+            if (collValidation == COLUMNCOL) {
+                continue;
+            }
+
+            // init direction is used to keep a track of the very first move we made from pacman for this exploration
+            if (curr.level == 0) {
+                curr.initDirection = (Direction)i;
+            }
+
+            if (collValidation == PACMANCOL) {
+				this->lastMove = curr.initDirection;
+                return std::make_unique< Input > (this->id, curr.initDirection);
+            }
+
+            std::pair< int, int > offset  = boundaryValidation.first;
+            std::pair< int, int > nextPos = { curr.currPos.first + offset.first,
+                curr.currPos.second + offset.second };
+            // only proceed if we haven't visited nextPos before
+            if (visited.find (nextPos) != visited.end () || curr.level == BFS_DEPTH_GHOST) {
+                continue;
+            }
+            q.push (BfsNode{ nextPos, curr.level + 1, curr.initDirection });
+        }
+    }
+
+    // Randome Exploration
     while (true) {
+        // Either this is the first move or this is the RANDOM MOVE PERFECNTAGE of the time situation where ghost turns randomly
         Direction moveToMake = this->lastMove;
-		// Either this is the first move or this is the RANDOM MOVE PERFECNTAGE of the time situation where ghost turns randomly
-        if (this->lastMove == NOOP || this->randomDirRg->getRandomInt() > (100 - RANDOM_MOVE_PERCENTAGE)) {
-			moveToMake = dirFrom[this->rg->getRandomInt()];
+        if (this->lastMove == NOOP ||
+        this->randomDirRg->getRandomInt () > (100 - RANDOM_MOVE_PERCENTAGE)) {
+            moveToMake = dirFrom[this->rg->getRandomInt ()];
         }
 
-        // would making the move be a valid move on the board? 
-		// if it would not give me a random diff dir
+        // would making the move be a valid move on the board?
+        // if it would not give me a random diff dir
 
-        Input ghostInput {this->id, moveToMake};
+        Input ghostInput{ this->id, moveToMake };
 
-        std::pair< int, int > currPos = gb.getCurrPos (this->id);
+        std::pair< std::pair< int, int >, Direction > res =
+        gb.validateMoveBoundary (currPos, moveToMake);
 
-		std::pair< std::pair<int, int>, Direction> res = gb.validateMoveBoundary (currPos, moveToMake);
+        if (res.second != NOOP) {
+            // collision based checking for columns if the move
+            // doesn't lead us into the column we are okay to proceed
+            CollisionValidation collValidation =
+            gb.validateCollision (currPos, res.first);
+            if (collValidation != COLUMNCOL) {
+                this->lastMove = moveToMake;
 
-		if (res.second != NOOP) {
-			// collision based checking for columns if the move 
-			// doesn't lead us into the column we are okay to proceed
-			CollisionValidation collValidation = gb.validateCollision (currPos, res.first);
-			if (collValidation != COLUMNCOL) {
-				this->lastMove = moveToMake;
+                assert (moveToMake != NOOP);
 
-				assert(moveToMake != NOOP);
-
-				return std::make_unique< Input > (std::move (ghostInput));
-			}
+                return std::make_unique< Input > (std::move (ghostInput));
+            }
         }
 
         this->lastMove = dirFrom[this->rg->getRandomInt ()];
@@ -367,7 +478,7 @@ int handleFakeInterrupt (struct pollfd fds[], std::vector< std::unique_ptr< Inpu
             ssize_t bytesRead = read (STDIN_FILENO, buffer, sizeof (buffer));
 
             if (bytesRead > 0) {
-				int ghostsAdded = 0;
+                int ghostsAdded = 0;
                 for (int i = 0; i < bytesRead; i++) {
                     std::unique_ptr< Input > userInput = nullptr;
                     switch (buffer[i]) {
@@ -383,9 +494,7 @@ int handleFakeInterrupt (struct pollfd fds[], std::vector< std::unique_ptr< Inpu
                     case RIGHT_CMD:
                         userInput = std::make_unique< Input > (Input{ 0, RIGHT });
                         break;
-					case ADD_GHOST:
-						ghostsAdded++;
-						break;
+                    case ADD_GHOST: ghostsAdded++; break;
                     case QUIT: return -1;
                     default: break;
                     }
@@ -435,7 +544,21 @@ class TerminalInputConfigManager {
     std::unique_ptr< struct termios > originalTerminalAttr;
 };
 
+void displayInstructions () {
+    std::cout << "---- Game Instructions ---- \n"
+              << "spacebar -> add a ghost \n"
+              << "q        -> EXIT        \n"
+              << "w        -> UP          \n"
+              << "a        -> LEFT        \n"
+              << "s        -> DOWN        \n"
+              << "d        -> RIGHT       \n"
+              << "PRESS ENTER TO START!" << std::endl;
+    std::cin.ignore (std::numeric_limits< std::streamsize >::max (), '\n');
+}
+
 int main () {
+    displayInstructions ();
+
     TerminalInputConfigManager cm;
     if (cm.useRawInput () < 0) {
         return -1;
@@ -451,50 +574,53 @@ int main () {
     std::vector< std::unique_ptr< Input > > gameplayInstructionBuffer;
 
     // setup gameboard
-	int rows = 20;
-	int cols = 40;
+    int rows = 20;
+    int cols = 40;
 
-	std::cout << "Constructing Game map with rows, cols " << rows << ", " << cols << std::endl;
+    // because score lives for the lifetime	of the program we can keep it on the stack
+    ScoreKeeper score;
 
-    Gameboard gb (rows, cols);
+    Gameboard gb (rows, cols, score);
 
     // add base player
     gb.insertMovable ();
-	gb.drawWalls(5);
+    gb.drawWalls (5);
 
     // Make this a vector so we can add ghosts at runtime?
-	std::vector<Ghost> ghosts;
+    std::vector< Ghost > ghosts;
+    ghosts.push_back (Ghost (gb.insertMovable ()));
+    score.notify (GHOSTADDED);
 
-	ghosts.push_back(Ghost (gb.insertMovable ()));
+    runCountdown (3);
 
-    runCountdown (2);
     bool moveGhost = true;
-
     // main Gameloop
     while (true) {
         // shitty hack to slow the ghosts down?
         if (moveGhost) {
-            for (int i = 0; i < (int)ghosts.size(); i++) {
+            for (int i = 0; i < (int)ghosts.size (); i++) {
                 gameplayInstructionBuffer.push_back (ghosts[i].getNextMove (gb));
             }
         }
-
         moveGhost = !moveGhost;
 
-		int ghostsAdded = handleFakeInterrupt (fds, gameplayInstructionBuffer);
-		// less than 0 means quit was pressed
+        int ghostsAdded = handleFakeInterrupt (fds, gameplayInstructionBuffer);
+        // less than 0 means quit was pressed
         if (ghostsAdded < 0) {
             // user wanted to exit the game
             break;
         }
-		
+
         gb.draw (gameplayInstructionBuffer);
 
         gameplayInstructionBuffer.clear ();
 
-		for (int i = 0; i < ghostsAdded; i++) {
-			ghosts.push_back(Ghost (gb.insertMovable ()));
-		}
+        score.displayScore ();
+
+        for (int i = 0; i < ghostsAdded; i++) {
+            ghosts.push_back (Ghost (gb.insertMovable ()));
+            score.notify (GHOSTADDED);
+        }
 
         usleep (FRAME);
 
